@@ -1,45 +1,40 @@
 <?php
-include_once '../../config/database.php';
-include_once '../../config/jwt.php';
+require_once __DIR__ . '/../bootstrap.php';
 
-header("Access-Control-Allow-Origin: *");
-header("Content-Type: application/json; charset=UTF-8");
-header("Access-Control-Allow-Methods: GET, POST");
-header("Access-Control-Allow-Headers: Content-Type, Access-Control-Allow-Headers, Authorization, X-Requested-With");
+use App\Core\{Middleware, Response, Request, Bootstrap};
 
-$headers = getallheaders();
-$auth = $headers['Authorization'] ?? $headers['authorization'] ?? null;
-if (!$auth || stripos($auth, 'Bearer ') !== 0) { http_response_code(401); echo json_encode(["message"=>"Unauthorized"]); exit; }
-$token = substr($auth, 7);
-$decoded = validateJwt($token);
-if (!$decoded) { http_response_code(401); echo json_encode(["message"=>"Invalid token"]); exit; }
-$userId = $decoded['data']->id ?? null;
-$role = $decoded['data']->role ?? null;
+Middleware::cors('GET, POST');
 
-$database = new Database();
-$db = $database->getConnection();
-if (!$db) { http_response_code(500); echo json_encode(["message"=>"Database connection failed"]); exit; }
+$user = Middleware::auth();
+$userId = $user->id;
+$role = $user->role;
 
-$input = file_get_contents("php://input");
-$data = json_decode($input, true);
-$classId = isset($_GET['class_id']) ? (int)$_GET['class_id'] : (isset($data['class_id']) ? (int)$data['class_id'] : 0);
+$db = Bootstrap::db();
+$data = Request::all();
 
-if (!$classId) { http_response_code(400); echo json_encode(["message"=>"Missing class_id"]); exit; }
+$classId = Request::getInt('class_id') ?: ($data['class_id'] ?? 0);
+
+if (!$classId) {
+    Response::error('Missing class_id', 400);
+}
 
 if ($role === 'teacher') {
     $stmt = $db->prepare("SELECT 1 FROM classes WHERE id=:cid AND homeroom_teacher_id=:tid LIMIT 1");
-    $stmt->execute([":cid"=>$classId, ":tid"=>$userId]);
+    $stmt->execute([":cid" => $classId, ":tid" => $userId]);
     $ok1 = $stmt->fetchColumn();
     $stmt2 = $db->prepare("SELECT 1 FROM class_teacher_assignments WHERE class_id=:cid AND teacher_id=:tid LIMIT 1");
-    $stmt2->execute([":cid"=>$classId, ":tid"=>$userId]);
+    $stmt2->execute([":cid" => $classId, ":tid" => $userId]);
     $ok2 = $stmt2->fetchColumn();
-    if (!$ok1 && !$ok2) { http_response_code(403); echo json_encode(["message"=>"Forbidden"]); exit; }
+    if (!$ok1 && !$ok2) {
+        Response::forbidden();
+    }
 }
-if ($role === 'student' || $role === 'parent') { http_response_code(403); echo json_encode(["message"=>"Forbidden"]); exit; }
+if ($role === 'student' || $role === 'parent') {
+    Response::forbidden();
+}
 
-// Query to get current discipline points directly from discipline_points table
 $sql = "
-SELECT 
+SELECT
     u.id AS student_id,
     u.full_name AS student_name,
     u.username AS student_code,
@@ -53,7 +48,7 @@ ORDER BY current_score DESC, u.full_name ASC
 
 try {
     $stmt = $db->prepare($sql);
-    $stmt->execute([":cid"=>$classId]);
+    $stmt->execute([":cid" => $classId]);
     $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
     $result = [];
@@ -71,9 +66,7 @@ try {
             "grade" => $grade
         ];
     }
-    echo json_encode($result);
+    Response::success($result);
 } catch (Exception $e) {
-    http_response_code(500);
-    echo json_encode(["message" => "Error: " . $e->getMessage()]);
+    Response::error('Error: ' . $e->getMessage(), 500);
 }
-?>

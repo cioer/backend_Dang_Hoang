@@ -1,44 +1,33 @@
 <?php
-include_once '../../config/database.php';
-include_once '../../config/jwt.php';
+require_once __DIR__ . '/../bootstrap.php';
 
-header("Access-Control-Allow-Origin: *");
-header("Content-Type: application/json; charset=UTF-8");
-header("Access-Control-Allow-Methods: POST");
-header("Access-Control-Allow-Headers: Content-Type, Access-Control-Allow-Headers, Authorization, X-Requested-With");
+use App\Core\{Middleware, Response, Request, Bootstrap};
 
-$headers = getallheaders();
-$token = isset($headers['Authorization']) ? str_replace('Bearer ', '', $headers['Authorization']) : null;
-$decoded = validateJWT($token);
+Middleware::cors('POST');
 
-if (!$decoded || $decoded['data']->role != 'admin') {
-    http_response_code(401);
-    echo json_encode(["message" => "Unauthorized"]);
-    exit;
+$user = Middleware::auth();
+
+if ($user->role != 'admin') {
+    Response::unauthorized('Unauthorized');
 }
 
-$data = json_decode(file_get_contents("php://input"));
+$data = Request::all();
 
-if (!empty($data->id) && isset($data->is_active)) {
-    $database = new Database();
-    $db = $database->getConnection();
+if (empty($data['id']) || !isset($data['is_active'])) {
+    Response::error('Incomplete data.', 400);
+}
 
-    $query = "UPDATE banners SET is_active = :is_active WHERE id = :id";
-    $stmt = $db->prepare($query);
+$db = Bootstrap::db();
 
-    $is_active = $data->is_active ? 1 : 0;
-    $stmt->bindParam(":is_active", $is_active);
-    $stmt->bindParam(":id", $data->id);
+$query = "UPDATE banners SET is_active = :is_active WHERE id = :id";
+$stmt = $db->prepare($query);
 
-    if ($stmt->execute()) {
-        http_response_code(200);
-        echo json_encode(["message" => "Banner status updated."]);
-    } else {
-        http_response_code(503);
-        echo json_encode(["message" => "Unable to update banner status."]);
-    }
+$is_active = $data['is_active'] ? 1 : 0;
+$stmt->bindParam(":is_active", $is_active);
+$stmt->bindParam(":id", $data['id']);
+
+if ($stmt->execute()) {
+    Response::success(["message" => "Banner status updated."]);
 } else {
-    http_response_code(400);
-    echo json_encode(["message" => "Incomplete data."]);
+    Response::error('Unable to update banner status.', 503);
 }
-?>

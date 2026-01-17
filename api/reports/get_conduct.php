@@ -1,31 +1,20 @@
 <?php
-include_once '../../config/database.php';
-include_once '../../config/jwt.php';
+require_once __DIR__ . '/../bootstrap.php';
 
-header("Access-Control-Allow-Origin: *");
-header("Content-Type: application/json; charset=UTF-8");
-header("Access-Control-Allow-Methods: POST");
+use App\Core\{Middleware, Response, Request, Bootstrap};
 
-$database = new Database();
-$db = $database->getConnection();
+Middleware::cors('POST');
 
-$data = json_decode(file_get_contents("php://input"));
-$token = isset($data->token) ? $data->token : "";
+$user = Middleware::auth();
+$db = Bootstrap::db();
+$data = Request::all();
 
-$decoded = validateJwt($token);
-if (!$decoded) {
-    http_response_code(401);
-    echo json_encode(["message" => "Truy cập bị từ chối."]);
-    exit;
-}
-
-$user_id = $decoded['data']->id;
-$role = $decoded['data']->role;
+$user_id = $user->id;
+$role = $user->role;
 $student_id = $user_id;
 
 // If parent, get child's id (simplified)
 if ($role == 'parent') {
-    // Logic to get child id
     $query = "SELECT student_id FROM parent_student_links WHERE parent_id = :parent_id LIMIT 1";
     $stmt = $db->prepare($query);
     $stmt->bindParam(":parent_id", $user_id);
@@ -41,11 +30,6 @@ $stmt = $db->prepare($query);
 $stmt->bindParam(":student_id", $student_id);
 $stmt->execute();
 
-$conducts = array();
-while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
-    array_push($conducts, $row);
-}
+$conducts = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-http_response_code(200);
-echo json_encode($conducts);
-?>
+Response::success($conducts);

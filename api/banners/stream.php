@@ -1,6 +1,8 @@
 <?php
 // Simple SSE endpoint that streams active banners changes
-include_once '../../config/database.php';
+require_once __DIR__ . '/../bootstrap.php';
+
+use App\Core\Bootstrap;
 
 header('Content-Type: text/event-stream');
 header('Cache-Control: no-cache');
@@ -12,8 +14,7 @@ header('X-Accel-Buffering: no');
 set_time_limit(0);
 while (ob_get_level() > 0) { @ob_end_flush(); }
 
-$database = new Database();
-$db = $database->getConnection();
+$db = Bootstrap::db();
 
 function getActiveBannersHash($db) {
     $query = "SELECT id, image_url, title, cta_text, link_url FROM banners WHERE is_active = 1 ORDER BY priority DESC, created_at DESC";
@@ -50,4 +51,3 @@ while (true) {
     }
     usleep(500000);
 }
-?>

@@ -1,26 +1,14 @@
 <?php
-include_once '../../config/database.php';
-include_once '../../config/jwt.php';
+require_once __DIR__ . '/../bootstrap.php';
 
-header("Access-Control-Allow-Origin: *");
-header("Content-Type: application/json; charset=UTF-8");
-header("Access-Control-Allow-Methods: POST");
+use App\Core\{Middleware, Response, Bootstrap};
 
-$database = new Database();
-$db = $database->getConnection();
+Middleware::cors('POST');
+$user = Middleware::auth();
+$db = Bootstrap::db();
 
-$data = json_decode(file_get_contents("php://input"));
-$token = isset($data->token) ? $data->token : "";
-
-$decoded = validateJwt($token);
-if (!$decoded) {
-    http_response_code(401);
-    echo json_encode(["message" => "Truy cập bị từ chối."]);
-    exit;
-}
-
-$user_role = $decoded['data']->role;
-$user_id = $decoded['data']->id;
+$user_role = $user->role;
+$user_id = $user->id;
 
 // Check if student is red star
 $is_red_star = false;
@@ -35,9 +23,7 @@ if ($user_role == 'red_star') {
 }
 
 if ($user_role != 'teacher' && $user_role != 'admin' && !$is_red_star) {
-    http_response_code(401);
-    echo json_encode(["message" => "Truy cập bị từ chối."]);
-    exit;
+    Response::unauthorized('Truy cap bi tu choi.');
 }
 
 if ($user_role == 'admin' || $is_red_star) {
@@ -47,12 +33,12 @@ if ($user_role == 'admin' || $is_red_star) {
 } else {
     // Teacher sees assigned classes
     $teacher_id = $user_id;
-    $query = "SELECT DISTINCT c.id, c.name 
-              FROM classes c 
-              LEFT JOIN schedule s ON c.id = s.class_id 
-              LEFT JOIN class_teacher_assignments cta ON c.id = cta.class_id 
-              WHERE s.teacher_id = :tid1 
-                 OR cta.teacher_id = :tid2 
+    $query = "SELECT DISTINCT c.id, c.name
+              FROM classes c
+              LEFT JOIN schedule s ON c.id = s.class_id
+              LEFT JOIN class_teacher_assignments cta ON c.id = cta.class_id
+              WHERE s.teacher_id = :tid1
+                 OR cta.teacher_id = :tid2
                  OR c.homeroom_teacher_id = :tid3
               ORDER BY c.name";
     $stmt = $db->prepare($query);
@@ -63,11 +49,6 @@ if ($user_role == 'admin' || $is_red_star) {
 
 $stmt->execute();
 
-$classes = array();
-while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
-    array_push($classes, $row);
-}
+$classes = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-http_response_code(200);
-echo json_encode($classes);
-?>
+Response::success($classes);

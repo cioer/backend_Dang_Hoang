@@ -1,29 +1,12 @@
 <?php
-include_once '../../config/database.php';
-include_once '../../config/jwt.php';
+require_once __DIR__ . '/../bootstrap.php';
 
-header("Access-Control-Allow-Origin: *");
-header("Content-Type: application/json; charset=UTF-8");
-header("Access-Control-Allow-Methods: GET");
-header("Access-Control-Allow-Headers: Content-Type, Access-Control-Allow-Headers, Authorization, X-Requested-With");
+use App\Core\{Middleware, Response, Bootstrap};
 
-$headers = getallheaders();
-$token = isset($headers['Authorization']) ? str_replace('Bearer ', '', $headers['Authorization']) : null;
+Middleware::cors('GET');
 
-if (!$token || !validateJWT($token)) {
-    http_response_code(401);
-    echo json_encode(["message" => "Unauthorized access."]);
-    exit;
-}
-
-$database = new Database();
-$db = $database->getConnection();
-
-if (!$db) {
-    http_response_code(500);
-    echo json_encode(["message" => "Database connection failed"]);
-    exit;
-}
+$user = Middleware::auth();
+$db = Bootstrap::db();
 
 try {
     // Statistics by Class (Total points deducted)
@@ -50,14 +33,11 @@ try {
     $stmt2->execute();
     $rule_stats = $stmt2->fetchAll(PDO::FETCH_ASSOC);
 
-    echo json_encode([
+    Response::success([
         "class_rankings" => $class_stats,
         "common_violations" => $rule_stats
     ]);
 } catch (PDOException $e) {
     error_log("Competition stats query error: " . $e->getMessage());
-    http_response_code(500);
-    echo json_encode(["message" => "Error fetching competition statistics"]);
-    exit;
+    Response::error('Error fetching competition statistics', 500);
 }
-?>

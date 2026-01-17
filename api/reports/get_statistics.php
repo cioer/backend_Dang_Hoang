@@ -1,32 +1,16 @@
 <?php
-include_once '../../config/database.php';
-include_once '../../config/jwt.php';
+require_once __DIR__ . '/../bootstrap.php';
 
-header("Access-Control-Allow-Origin: *");
-header("Content-Type: application/json; charset=UTF-8");
-header("Access-Control-Allow-Methods: POST");
+use App\Core\{Middleware, Response, Request, Bootstrap};
 
-$database = new Database();
-$db = $database->getConnection();
+Middleware::cors('POST');
 
-if (!$db) {
-    http_response_code(500);
-    echo json_encode(["message" => "Database connection failed"]);
-    exit;
-}
+$user = Middleware::auth();
+$db = Bootstrap::db();
+$data = Request::all();
 
-$data = json_decode(file_get_contents("php://input"));
-$token = isset($data->token) ? $data->token : "";
-
-$decoded = validateJwt($token);
-if (!$decoded) {
-    http_response_code(401);
-    echo json_encode(["message" => "Truy cập bị từ chối."]);
-    exit;
-}
-
-$user_id = $decoded['data']->id;
-$role = $decoded['data']->role;
+$user_id = $user->id;
+$role = $user->role;
 
 $student_id = $user_id;
 if ($role == 'parent') {
@@ -41,15 +25,13 @@ if ($role == 'parent') {
         }
     } catch (PDOException $e) {
         error_log("Error getting parent's student: " . $e->getMessage());
-        http_response_code(500);
-        echo json_encode(["message" => "Error loading student data"]);
-        exit;
+        Response::error('Error loading student data', 500);
     }
 }
 
 try {
     // 1. Get Scores for BarChart
-    $queryScores = "SELECT s.name as subject_name, COALESCE(sc.score_final, sc.score_45m, sc.score_15m, 0) as score 
+    $queryScores = "SELECT s.name as subject_name, COALESCE(sc.score_final, sc.score_45m, sc.score_15m, 0) as score
                     FROM scores sc
                     JOIN subjects s ON sc.subject_id = s.id
                     WHERE sc.student_id = :student_id
@@ -60,22 +42,20 @@ try {
     $scores = $stmtScores->fetchAll(PDO::FETCH_ASSOC);
 
     // 2. Get Attendance for PieChart
-    $queryAttendance = "SELECT status, COUNT(*) as count 
-                        FROM attendance 
-                        WHERE student_id = :student_id 
+    $queryAttendance = "SELECT status, COUNT(*) as count
+                        FROM attendance
+                        WHERE student_id = :student_id
                         GROUP BY status";
     $stmtAttendance = $db->prepare($queryAttendance);
     $stmtAttendance->bindParam(":student_id", $student_id);
     $stmtAttendance->execute();
     $attendance = $stmtAttendance->fetchAll(PDO::FETCH_ASSOC);
 
-    echo json_encode([
+    Response::success([
         "scores" => $scores,
         "attendance" => $attendance
     ]);
 } catch (PDOException $e) {
     error_log("Statistics query error: " . $e->getMessage());
-    http_response_code(500);
-    echo json_encode(["message" => "Error fetching statistics"]);
-    exit;
+    Response::error('Error fetching statistics', 500);
 }

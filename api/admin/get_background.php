@@ -1,23 +1,20 @@
 <?php
-include_once '../../config/database.php';
-include_once '../../config/jwt.php';
-header("Access-Control-Allow-Origin: *");
-header("Content-Type: application/json; charset=UTF-8");
-header("Access-Control-Allow-Methods: GET");
-header("Access-Control-Allow-Headers: Content-Type, Access-Control-Allow-Headers, Authorization, X-Requested-With");
-$headers = getallheaders();
-$token = isset($headers['Authorization']) ? str_replace('Bearer ', '', $headers['Authorization']) : null;
-$decoded = validateJWT($token);
-if (!$decoded) { http_response_code(401); echo json_encode(["message"=>"Unauthorized"]); exit; }
+require_once __DIR__ . '/../bootstrap.php';
 
-$db = (new Database())->getConnection();
+use App\Core\{Middleware, Response, Bootstrap};
+
+Middleware::cors('GET');
+Middleware::auth();
+
+$db = Bootstrap::db();
+
 $q = $db->prepare("SELECT setting_key, setting_value FROM system_settings WHERE setting_key IN ('bg_mobile','bg_pc','bg_sub1','bg_sub2','bg_sub3','banner_text_1','banner_text_2','banner_text_3','banner_link_1','banner_link_2','banner_link_3')");
 $q->execute();
 
-$res = ['bg_mobile'=>null,'bg_pc'=>null,'bg_sub1'=>null,'bg_sub2'=>null,'bg_sub3'=>null];
+$res = ['bg_mobile' => null, 'bg_pc' => null, 'bg_sub1' => null, 'bg_sub2' => null, 'bg_sub3' => null];
 
 // Helper to get fallback URL
-function getFallback($k) {
+$getFallback = function ($k) {
     $scheme = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on') ? 'https' : 'http';
     $host = $_SERVER['HTTP_HOST'];
     $fallbacks = [
@@ -28,7 +25,7 @@ function getFallback($k) {
         'bg_sub3' => $scheme . '://' . $host . '/Backend/api/admin/static_bg.php?size=800x400&text=sub3'
     ];
     return isset($fallbacks[$k]) ? $fallbacks[$k] : $scheme . '://' . $host . '/Backend/api/admin/static_bg.php?size=800x400&text=bg';
-}
+};
 
 // Fill from DB
 while ($row = $q->fetch(PDO::FETCH_ASSOC)) {
@@ -47,7 +44,7 @@ while ($row = $q->fetch(PDO::FETCH_ASSOC)) {
             $host = $_SERVER['HTTP_HOST'];
             $val = $scheme . '://' . $host . '/Backend/uploads/backgrounds/' . $filename;
         } else {
-            $val = getFallback($k);
+            $val = $getFallback($k);
         }
     }
     $res[$k] = $val;
@@ -56,9 +53,8 @@ while ($row = $q->fetch(PDO::FETCH_ASSOC)) {
 // Fill missing keys with fallbacks
 foreach ($res as $k => $v) {
     if ($v === null) {
-        $res[$k] = getFallback($k);
+        $res[$k] = $getFallback($k);
     }
 }
 
-echo json_encode($res);
-?>
+Response::success($res);

@@ -1,25 +1,18 @@
 <?php
-include_once '../../config/database.php';
-include_once '../../config/jwt.php';
+require_once __DIR__ . '/../bootstrap.php';
 
-header("Access-Control-Allow-Origin: *");
-header("Content-Type: application/json; charset=UTF-8");
-header("Access-Control-Allow-Methods: GET");
+use App\Core\{Middleware, Response, Bootstrap};
 
-$database = new Database();
-$db = $database->getConnection();
+Middleware::cors('GET');
 
-$query = "SELECT id, title, content, created_at 
-          FROM notifications 
+$db = Bootstrap::db();
+
+$query = "SELECT id, title, content, created_at
+          FROM notifications
           ORDER BY created_at DESC";
 $stmt = $db->prepare($query);
 $stmt->execute();
 
-$notifications = array();
-while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
-    array_push($notifications, $row);
-}
+$notifications = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-http_response_code(200);
-echo json_encode($notifications);
-?>
+Response::success($notifications);

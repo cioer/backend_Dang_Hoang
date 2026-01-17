@@ -1,52 +1,32 @@
 <?php
-include_once '../../config/database.php';
-include_once '../../config/jwt.php';
-include_once '../../lib/UserRepository.php';
+require_once __DIR__ . '/../bootstrap.php';
 
-header("Access-Control-Allow-Origin: *");
-header("Content-Type: application/json; charset=UTF-8");
-header("Access-Control-Allow-Methods: POST");
+use App\Core\{Middleware, Response, Request, Bootstrap};
 
-$database = new Database();
-$db = $database->getConnection();
+Middleware::cors('POST');
+
+$db = Bootstrap::db();
 $repo = new UserRepository($db);
 
-$data = json_decode(file_get_contents("php://input"));
-$token = isset($data->token) ? $data->token : "";
-$authHeader = isset($_SERVER['HTTP_AUTHORIZATION']) ? $_SERVER['HTTP_AUTHORIZATION'] : null;
-if (!$token && $authHeader && stripos($authHeader, 'Bearer ') === 0) {
-    $token = substr($authHeader, 7);
-}
-$old_password = isset($data->old_password) ? $data->old_password : "";
-$new_password = isset($data->new_password) ? $data->new_password : "";
+$user = Middleware::auth();
+$data = Request::all();
 
-$decoded = validateJwt($token);
-if (!$decoded) {
-    http_response_code(401);
-    echo json_encode(["message" => "Truy cập bị từ chối."]);
-    exit;
-}
-
-$user_id = $decoded['data']->id;
+$old_password = $data['old_password'] ?? '';
+$new_password = $data['new_password'] ?? '';
 
 // Verify old password
 $stmt = $db->prepare("SELECT password FROM users WHERE id = :id LIMIT 1");
-$stmt->bindParam(":id", $user_id);
+$stmt->bindParam(":id", $user->id);
 $stmt->execute();
-$user = $stmt->fetch(PDO::FETCH_ASSOC);
+$userData = $stmt->fetch(PDO::FETCH_ASSOC);
 
-if (!$user || !$repo->verifyPassword($user['password'], $old_password)) {
-    http_response_code(400);
-    echo json_encode(["message" => "Mật khẩu cũ không đúng."]);
-    exit;
+if (!$userData || !$repo->verifyPassword($userData['password'], $old_password)) {
+    Response::error('Mật khẩu cũ không đúng.', 400);
 }
 
 // Update password
-if ($repo->updatePassword(intval($user_id), $new_password)) {
-    http_response_code(200);
-    echo json_encode(["message" => "Đổi mật khẩu thành công."]);
+if ($repo->updatePassword(intval($user->id), $new_password)) {
+    Response::message('Đổi mật khẩu thành công.');
 } else {
-    http_response_code(503);
-    echo json_encode(["message" => "Không thể cập nhật mật khẩu."]);
+    Response::error('Không thể cập nhật mật khẩu.', 503);
 }
-?>

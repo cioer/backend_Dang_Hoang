@@ -1,50 +1,50 @@
 <?php
-include_once '../../config/database.php';
-include_once '../../config/jwt.php';
-header("Access-Control-Allow-Origin: *");
-header("Content-Type: application/json; charset=UTF-8");
-header("Access-Control-Allow-Methods: GET, POST");
-header("Access-Control-Allow-Headers: Content-Type, Access-Control-Allow-Headers, Authorization, X-Requested-With");
+require_once __DIR__ . '/../bootstrap.php';
 
-$headers = getallheaders();
-$auth = $headers['Authorization'] ?? $headers['authorization'] ?? null;
-if (!$auth || stripos($auth, 'Bearer ') !== 0) { http_response_code(401); echo json_encode(["message"=>"Unauthorized"]); exit; }
-$token = substr($auth, 7);
-$decoded = validateJwt($token);
-if (!$decoded) { http_response_code(401); echo json_encode(["message"=>"Invalid token"]); exit; }
-$userId = $decoded['data']->id ?? null;
-$role = $decoded['data']->role ?? null;
+use App\Core\{Middleware, Response, Request, Bootstrap};
 
-$database = new Database();
-$db = $database->getConnection();
-if (!$db) { http_response_code(500); echo json_encode(["message"=>"Database connection failed"]); exit; }
-$db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+Middleware::cors('GET, POST');
 
-$input = file_get_contents("php://input");
-$data = json_decode($input, true);
-$classId = isset($_GET['class_id']) ? (int)$_GET['class_id'] : (isset($data['class_id']) ? (int)$data['class_id'] : 0);
-$semester = isset($_GET['semester']) ? $_GET['semester'] : (isset($data['semester']) ? $data['semester'] : "");
-$year = isset($_GET['year']) ? (int)$_GET['year'] : (isset($data['year']) ? (int)$data['year'] : 0);
-if (!$classId || !$semester || !$year) { http_response_code(400); echo json_encode(["message"=>"Missing class_id, semester or year"]); exit; }
+$user = Middleware::auth();
+$userId = $user->id;
+$role = $user->role;
+
+$db = Bootstrap::db();
+$data = Request::all();
+
+$classId = Request::getInt('class_id') ?: ($data['class_id'] ?? 0);
+$semester = Request::get('semester') ?: ($data['semester'] ?? '');
+$year = Request::getInt('year') ?: ($data['year'] ?? 0);
+
+if (!$classId || !$semester || !$year) {
+    Response::error('Missing class_id, semester or year', 400);
+}
+
 $semester = strtoupper($semester);
-if (!in_array($semester, ["HK1","HK2"], true)) { http_response_code(400); echo json_encode(["message"=>"Invalid semester"]); exit; }
+if (!in_array($semester, ["HK1", "HK2"], true)) {
+    Response::error('Invalid semester', 400);
+}
 
 if ($role === 'teacher') {
     $stmt = $db->prepare("SELECT 1 FROM classes WHERE id=:cid AND homeroom_teacher_id=:tid LIMIT 1");
-    $stmt->execute([":cid"=>$classId, ":tid"=>$userId]);
+    $stmt->execute([":cid" => $classId, ":tid" => $userId]);
     $ok1 = $stmt->fetchColumn() ? true : false;
     $stmt2 = $db->prepare("SELECT 1 FROM class_teacher_assignments WHERE class_id=:cid AND teacher_id=:tid LIMIT 1");
-    $stmt2->execute([":cid"=>$classId, ":tid"=>$userId]);
+    $stmt2->execute([":cid" => $classId, ":tid" => $userId]);
     $ok2 = $stmt2->fetchColumn() ? true : false;
-    if (!$ok1 && !$ok2) { http_response_code(403); echo json_encode(["message"=>"Forbidden"]); exit; }
+    if (!$ok1 && !$ok2) {
+        Response::forbidden();
+    }
 }
-if ($role === 'student' || $role === 'parent') { http_response_code(403); echo json_encode(["message"=>"Forbidden"]); exit; }
+if ($role === 'student' || $role === 'parent') {
+    Response::forbidden();
+}
 
 $startMonth = $semester === "HK1" ? 9 : 1;
 $endMonth = $semester === "HK1" ? 12 : 5;
 
 $sql = "
-SELECT 
+SELECT
     u.id AS student_id,
     u.full_name AS student_name,
     u.username AS student_code,
@@ -59,7 +59,7 @@ ORDER BY points_lost ASC, u.full_name ASC
 ";
 
 $stmt = $db->prepare($sql);
-$stmt->execute([":cid"=>$classId, ":y"=>$year, ":m1"=>$startMonth, ":m2"=>$endMonth]);
+$stmt->execute([":cid" => $classId, ":y" => $year, ":m1" => $startMonth, ":m2" => $endMonth]);
 $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
 $result = [];
@@ -79,4 +79,5 @@ foreach ($rows as $r) {
         "grade" => $grade
     ];
 }
-echo json_encode($result);
+
+Response::success($result);

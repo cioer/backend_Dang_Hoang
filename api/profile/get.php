@@ -1,31 +1,35 @@
 <?php
-include_once '../../config/database.php';
-include_once '../../config/jwt.php';
-header("Access-Control-Allow-Origin: *");
-header("Content-Type: application/json; charset=UTF-8");
-header("Access-Control-Allow-Methods: POST");
-header("Access-Control-Allow-Headers: Content-Type, Access-Control-Allow-Headers, Authorization, X-Requested-With");
-$headers = getallheaders();
-$token = isset($headers['Authorization']) ? str_replace('Bearer ', '', $headers['Authorization']) : null;
-$decoded = validateJWT($token);
-if (!$decoded) { http_response_code(401); echo json_encode(["message"=>"Unauthorized"]); exit; }
-$db = (new Database())->getConnection();
-$data = json_decode(file_get_contents("php://input"));
-$target_id = isset($data->user_id) ? intval($data->user_id) : $decoded['data']->id;
-if ($decoded['data']->role != 'admin' && $target_id !== $decoded['data']->id) { http_response_code(403); echo json_encode(["message"=>"Forbidden"]); exit; }
-$stmt = $db->prepare("SELECT id, username, full_name, role, email, phone, avatar FROM users WHERE id=:id LIMIT 1");
-$stmt->execute([':id'=>$target_id]);
-$user = $stmt->fetch(PDO::FETCH_ASSOC);
-if (!$user) { http_response_code(404); echo json_encode(["message"=>"Not found"]); exit; }
+require_once __DIR__ . '/../bootstrap.php';
 
-// Check Red Star status if student
-if ($user['role'] == 'student') {
-    $stmtRed = $db->prepare("SELECT COUNT(*) FROM red_committee_members WHERE user_id=:uid AND active=1");
-    $stmtRed->execute([':uid'=>$user['id']]);
-    $user['is_red_star'] = $stmtRed->fetchColumn() > 0 ? 1 : 0;
-} else {
-    $user['is_red_star'] = 0;
+use App\Core\{Middleware, Response, Request, Bootstrap};
+
+Middleware::cors('POST');
+
+$user = Middleware::auth();
+$db = Bootstrap::db();
+$data = Request::all();
+
+$target_id = isset($data['user_id']) ? intval($data['user_id']) : $user->id;
+
+if ($user->role != 'admin' && $target_id !== $user->id) {
+    Response::forbidden();
 }
 
-echo json_encode($user);
-?>
+$stmt = $db->prepare("SELECT id, username, full_name, role, email, phone, avatar FROM users WHERE id=:id LIMIT 1");
+$stmt->execute([':id' => $target_id]);
+$userData = $stmt->fetch(PDO::FETCH_ASSOC);
+
+if (!$userData) {
+    Response::notFound();
+}
+
+// Check Red Star status if student
+if ($userData['role'] == 'student') {
+    $stmtRed = $db->prepare("SELECT COUNT(*) FROM red_committee_members WHERE user_id=:uid AND active=1");
+    $stmtRed->execute([':uid' => $userData['id']]);
+    $userData['is_red_star'] = $stmtRed->fetchColumn() > 0 ? 1 : 0;
+} else {
+    $userData['is_red_star'] = 0;
+}
+
+Response::success($userData);

@@ -1,64 +1,48 @@
 <?php
-include_once '../../config/database.php';
-include_once '../../config/jwt.php';
+require_once __DIR__ . '/../bootstrap.php';
 
-header("Access-Control-Allow-Origin: *");
-header("Content-Type: application/json; charset=UTF-8");
-header("Access-Control-Allow-Methods: POST");
+use App\Core\{Middleware, Response, Request, Bootstrap};
 
-// 1. Xác thực Admin
-$headers = getallheaders();
-$token = isset($headers['Authorization']) ? str_replace('Bearer ', '', $headers['Authorization']) : null;
-/*
-// Tạm tắt check token để dễ test, bật lại khi production
-$decoded = validateJwt($token);
-if (!$decoded || $decoded['data']->role != 'admin') {
-    http_response_code(401);
-    echo json_encode(["status" => "error", "message" => "Unauthorized"]);
-    exit;
-}
-*/
+Middleware::cors('POST');
+// Note: Auth is commented out in original for testing - keeping that behavior
+// Middleware::requireAdmin();
 
-$db = (new Database())->getConnection();
-$data = json_decode(file_get_contents("php://input"), true);
+$db = Bootstrap::db();
+$data = Request::all();
 
-$tableName = isset($data['table_name']) ? $data['table_name'] : null;
-$rows = isset($data['data']) ? $data['data'] : [];
-$overwrite = isset($data['overwrite']) ? $data['overwrite'] : false; // True: Xóa cũ chèn mới
+$tableName = $data['table_name'] ?? null;
+$rows = $data['data'] ?? [];
+$overwrite = $data['overwrite'] ?? false; // True: Delete old and insert new
 
 if (!$tableName || empty($rows)) {
-    http_response_code(400);
-    echo json_encode(["status" => "error", "message" => "Missing table_name or data"]);
-    exit;
+    Response::error("Missing table_name or data", 400);
 }
 
-// 2. Kiểm tra tên bảng hợp lệ (White-list)
+// Allowed tables whitelist
 $allowedTables = [
-    'users', 'classes', 'subjects', 'students', 'student_profiles', 
-    'student_details', 'parent_student_links', 'schedule', 'attendance', 
-    'notifications', 'messages', 'news', 'behavior_reports', 
-    'discipline_points', 'conduct_rules', 'violations', 'scores', 
-    'conduct', 'teacher_subjects', 'class_registrations', 
+    'users', 'classes', 'subjects', 'students', 'student_profiles',
+    'student_details', 'parent_student_links', 'schedule', 'attendance',
+    'notifications', 'messages', 'news', 'behavior_reports',
+    'discipline_points', 'conduct_rules', 'violations', 'scores',
+    'conduct', 'teacher_subjects', 'class_registrations',
     'conduct_results', 'teacher_class_requests', 'class_teacher_assignments',
     'banners', 'banner_logs'
 ];
 
 if (!in_array($tableName, $allowedTables)) {
-    http_response_code(400);
-    echo json_encode(["status" => "error", "message" => "Invalid table name: $tableName"]);
-    exit;
+    Response::error("Invalid table name: $tableName", 400);
 }
 
 try {
-    // 3. Lấy Schema bảng để validate
+    // Get table schema for validation
     $stmt = $db->prepare("DESCRIBE " . $tableName);
     $stmt->execute();
     $schema = $stmt->fetchAll(PDO::FETCH_ASSOC);
-    
+
     $columns = [];
     $pk = null;
     $requiredFields = [];
-    
+
     foreach ($schema as $col) {
         $columns[$col['Field']] = $col;
         if ($col['Key'] == 'PRI') $pk = $col['Field'];
@@ -67,7 +51,7 @@ try {
         }
     }
 
-    // 4. Validate Dữ liệu đầu vào
+    // Validate input data
     $validatedRows = [];
     foreach ($rows as $index => $row) {
         $cleanRow = [];
@@ -77,26 +61,25 @@ try {
                 throw new Exception("Row " . ($index + 1) . ": Missing required field '$field'");
             }
         }
-        
+
         // Map data to columns
         foreach ($row as $key => $val) {
             if (array_key_exists($key, $columns)) {
                 $cleanRow[$key] = $val;
-                // Basic type check (Optional: expand this)
+                // Basic type check
                 if (strpos($columns[$key]['Type'], 'int') !== false && !is_numeric($val) && $val !== null) {
-                     throw new Exception("Row " . ($index + 1) . ": Field '$key' must be numeric (Value: $val)");
+                    throw new Exception("Row " . ($index + 1) . ": Field '$key' must be numeric (Value: $val)");
                 }
             }
         }
         $validatedRows[] = $cleanRow;
     }
 
-    // 5. Thực thi Transaction
+    // Execute transaction
     $db->beginTransaction();
 
-    // Xóa dữ liệu cũ nếu overwrite = true
+    // Delete old data if overwrite = true
     if ($overwrite) {
-        // Tắt FK check tạm thời để xóa (Nguy hiểm, cân nhắc kỹ)
         $db->exec("SET FOREIGN_KEY_CHECKS = 0");
         $db->exec("DELETE FROM " . $tableName);
         $db->exec("SET FOREIGN_KEY_CHECKS = 1");
@@ -106,11 +89,13 @@ try {
     if (count($validatedRows) > 0) {
         $firstRow = $validatedRows[0];
         $fields = array_keys($firstRow);
-        $placeholders = array_map(function($f) { return ":$f"; }, $fields);
-        
+        $placeholders = array_map(function ($f) {
+            return ":$f";
+        }, $fields);
+
         $sql = "INSERT INTO $tableName (" . implode(',', $fields) . ") VALUES (" . implode(',', $placeholders) . ")";
-        
-        // Handle Duplicate Keys (Upsert) nếu không overwrite
+
+        // Handle Duplicate Keys (Upsert) if not overwrite
         if (!$overwrite) {
             $updateParts = [];
             foreach ($fields as $f) {
@@ -134,32 +119,27 @@ try {
 
     $db->commit();
 
-    // 6. Ghi log (Nếu có bảng system_logs hoặc ghi file)
     $logMsg = "Imported " . count($validatedRows) . " rows into $tableName. Overwrite: " . ($overwrite ? 'Yes' : 'No');
-    // file_put_contents('../../logs/import.log', date('Y-m-d H:i:s') . " - $logMsg\n", FILE_APPEND);
 
-    echo json_encode([
-        "status" => "success", 
+    Response::success([
+        "status" => "success",
         "message" => $logMsg,
         "rows_affected" => count($validatedRows)
     ]);
 
 } catch (PDOException $e) {
     if ($db->inTransaction()) $db->rollBack();
-    
+
     $msg = $e->getMessage();
-    // Phân tích lỗi SQL phổ biến
+    // Parse common SQL errors
     if (strpos($msg, '1452') !== false) {
-        $msg = "Lỗi khóa ngoại: Dữ liệu tham chiếu không tồn tại.";
+        $msg = "Foreign key error: Referenced data does not exist.";
     } elseif (strpos($msg, '1062') !== false) {
-        $msg = "Lỗi trùng lặp dữ liệu (Duplicate Entry).";
+        $msg = "Duplicate entry error.";
     }
 
-    http_response_code(500);
-    echo json_encode(["status" => "error", "message" => $msg, "debug" => $e->getMessage()]);
+    Response::error($msg, 500);
 } catch (Exception $e) {
     if ($db->inTransaction()) $db->rollBack();
-    http_response_code(400);
-    echo json_encode(["status" => "error", "message" => $e->getMessage()]);
+    Response::error($e->getMessage(), 400);
 }
-?>

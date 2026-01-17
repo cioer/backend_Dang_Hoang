@@ -1,33 +1,22 @@
 <?php
-include_once '../../config/database.php';
-include_once '../../config/jwt.php';
+require_once __DIR__ . '/../bootstrap.php';
 
-header("Access-Control-Allow-Origin: *");
-header("Content-Type: application/json; charset=UTF-8");
-header("Access-Control-Allow-Methods: POST");
+use App\Core\{Middleware, Response, Request, Bootstrap};
 
-$database = new Database();
-$db = $database->getConnection();
+Middleware::cors('POST');
 
-$data = json_decode(file_get_contents("php://input"));
-$token = isset($data->token) ? $data->token : "";
-$receiver_id = isset($data->receiver_id) ? $data->receiver_id : 0;
-$content = isset($data->content) ? $data->content : "";
+$user = Middleware::auth();
+$db = Bootstrap::db();
+$data = Request::all();
 
-$decoded = validateJwt($token);
-if (!$decoded) {
-    http_response_code(401);
-    echo json_encode(["message" => "Truy cập bị từ chối."]);
-    exit;
-}
+$receiver_id = $data['receiver_id'] ?? 0;
+$content = $data['content'] ?? "";
 
 if (empty($content) || $receiver_id == 0) {
-    http_response_code(400);
-    echo json_encode(["message" => "Dữ liệu không hợp lệ."]);
-    exit;
+    Response::error('Dữ liệu không hợp lệ.', 400);
 }
 
-$sender_id = $decoded['data']->id;
+$sender_id = $user->id;
 
 $query = "INSERT INTO messages (sender_id, receiver_id, content) VALUES (:sender_id, :receiver_id, :content)";
 $stmt = $db->prepare($query);
@@ -36,10 +25,7 @@ $stmt->bindParam(":receiver_id", $receiver_id);
 $stmt->bindParam(":content", $content);
 
 if ($stmt->execute()) {
-    http_response_code(200);
-    echo json_encode(["message" => "Gửi tin nhắn thành công."]);
+    Response::success(["message" => "Gửi tin nhắn thành công."]);
 } else {
-    http_response_code(503);
-    echo json_encode(["message" => "Lỗi hệ thống."]);
+    Response::error('Lỗi hệ thống.', 503);
 }
-?>

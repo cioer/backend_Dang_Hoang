@@ -1,11 +1,13 @@
 <?php
-require_once '../red_committee/util.php';
-$database = new Database();
-$db = $database->getConnection();
+require_once __DIR__ . '/../bootstrap.php';
+
+use App\Core\{Response, Bootstrap};
+
+$db = Bootstrap::db();
 
 // Deactivate expired red committee members
-$query = "UPDATE red_committee_members 
-          SET active = 0 
+$query = "UPDATE red_committee_members
+          SET active = 0
           WHERE active = 1 AND expired_at < CURDATE()";
 $stmt = $db->prepare($query);
 $stmt->execute();
@@ -20,6 +22,5 @@ if ($count > 0) {
 // Return stats for admin dashboard if requested
 if (isset($_GET['stats'])) {
     header('Content-Type: application/json');
-    echo json_encode(['deactivated_count' => $count]);
+    Response::success(['deactivated_count' => $count]);
 }
-?>
