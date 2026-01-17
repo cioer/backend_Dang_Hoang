@@ -1,0 +1,76 @@
+version: '3.8'
+
+services:
+  # PHP-FPM + Nginx
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: school_management_backend
+    restart: unless-stopped
+    ports:
+      - "${APP_PORT:-8080}:80"
+    environment:
+      - DB_HOST=mysql
+      - DB_NAME=${DB_NAME:-school_management}
+      - DB_USER=${DB_USER:-school_user}
+      - DB_PASSWORD=${DB_PASSWORD:-school_password}
+    volumes:
+      - ./:/var/www/html
+      - ./uploads:/var/www/html/uploads
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks:
+      - school_network
+
+  # MySQL Database
+  mysql:
+    image: mysql:8.0
+    container_name: school_management_db
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-root_password}
+      MYSQL_DATABASE: ${DB_NAME:-school_management}
+      MYSQL_USER: ${DB_USER:-school_user}
+      MYSQL_PASSWORD: ${DB_PASSWORD:-school_password}
+    ports:
+      - "${DB_PORT:-3306}:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./docker/mysql/init-db.d:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${DB_ROOT_PASSWORD:-root_password}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - school_network
+
+  # phpMyAdmin (optional - for database management)
+  phpmyadmin:
+    image: phpmyadmin:latest
+    container_name: school_management_phpmyadmin
+    restart: unless-stopped
+    environment:
+      PMA_HOST: mysql
+      PMA_PORT: 3306
+      PMA_USER: ${DB_USER:-school_user}
+      PMA_PASSWORD: ${DB_PASSWORD:-school_password}
+      UPLOAD_LIMIT: 100M
+    ports:
+      - "${PMA_PORT:-8081}:80"
+    depends_on:
+      - mysql
+    networks:
+      - school_network
+    profiles:
+      - tools
+
+volumes:
+  mysql_data:
+    driver: local
+
+networks:
+  school_network:
+    driver: bridge
