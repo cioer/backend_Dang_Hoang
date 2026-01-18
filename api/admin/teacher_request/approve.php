@@ -55,7 +55,7 @@ if ($approve) {
 }
 
 // Send notification to specific teacher (not all teachers)
-$notify = $db->prepare("INSERT INTO notifications(title, content, sender_id, target_user_id) VALUES (:t,:c,:s,:tid)");
-$notify->execute([":t" => "Ket qua yeu cau phan lop", ":c" => $msg, ":s" => $user->id, ":tid" => $req["teacher_id"]]);
+$notify = $db->prepare("INSERT INTO notifications(title, content, sender_id, receiver_id, target_role) VALUES (:t,:c,:s,:rid,'teacher')");
+$notify->execute([":t" => "Ket qua yeu cau phan lop", ":c" => $msg, ":s" => $user->id, ":rid" => $req["teacher_id"]]);
 
 Response::message("OK");
