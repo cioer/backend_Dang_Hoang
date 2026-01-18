@@ -1,17 +1,17 @@
 <?php
-require_once __DIR__ . '/../bootstrap.php';
+require_once __DIR__ . "/../bootstrap.php";
 
 use App\Core\{Middleware, Response, Request, Bootstrap};
 
-Middleware::cors('POST');
+Middleware::cors("GET,POST");
 Middleware::auth();
 
 $db = Bootstrap::db();
-$body = Request::all();
 
-$class_id = $body['class_id'] ?? null;
+// Accept both GET and POST
+$class_id = Request::get("class_id") ?? Request::input("class_id") ?? null;
 if (!$class_id) {
-    Response::error('Missing class_id', 400);
+    Response::error("Missing class_id", 400);
 }
 
 $stmt = $db->prepare("
@@ -25,7 +25,7 @@ LEFT JOIN student_profiles sp ON sp.user_id = u.id
 LEFT JOIN (
   SELECT student_id, COUNT(*) AS cnt FROM violations GROUP BY student_id
 ) v ON v.student_id=u.id
-WHERE u.role='student' AND cr.class_id=:cid
+WHERE u.role=\"student\" AND cr.class_id=:cid
 ORDER BY u.full_name ASC
 ");
 $stmt->execute([":cid" => $class_id]);

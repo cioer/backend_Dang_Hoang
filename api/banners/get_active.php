@@ -1,9 +1,9 @@
 <?php
-require_once __DIR__ . '/../bootstrap.php';
+require_once __DIR__ . "/../bootstrap.php";
 
 use App\Core\{Middleware, Response, Bootstrap};
 
-Middleware::cors('GET');
+Middleware::cors("GET");
 
 $db = Bootstrap::db();
 
@@ -14,14 +14,14 @@ try {
 
     $banners_arr = array();
 
-    $protocol = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on') ? "https" : "http";
-    $host = $_SERVER['HTTP_HOST'];
-    $base_url = $protocol . "://" . $host . "/Backend/";
+    $protocol = (isset($_SERVER["HTTPS"]) && $_SERVER["HTTPS"] === "on") ? "https" : "http";
+    $host = $_SERVER["HTTP_HOST"];
+    $base_url = $protocol . "://" . $host . "/";
 
     while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
         extract($row);
 
-        if (!empty($image_url) && strpos($image_url, 'http') !== 0) {
+        if (!empty($image_url) && strpos($image_url, "http") !== 0) {
             $image_url = $base_url . $image_url;
         }
 
