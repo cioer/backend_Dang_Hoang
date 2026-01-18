@@ -54,7 +54,7 @@ $durationWeeks = isset($data["duration_weeks"]) ? intval($data["duration_weeks"]
 $startDate = $data["start_date"] ?? date("Y-m-d");
 $expiredAt = date("Y-m-d", strtotime($startDate . " + $durationWeeks weeks"));
 
-$stmt = $db->prepare("SELECT u.full_name FROM red_committee_members m JOIN users u ON m.user_id = u.id WHERE m.class_id=:cid AND m.active=1");
+$stmt = $db->prepare("SELECT m.user_id, u.full_name FROM red_committee_members m JOIN users u ON m.user_id = u.id WHERE m.class_id=:cid AND m.active=1");
 $stmt->execute([":cid" => $classId]);
 $current = $stmt->fetch(PDO::FETCH_ASSOC);
 
@@ -67,13 +67,15 @@ if ($current) {
         ]);
         exit;
     } else {
+        $oldUserId = $current["user_id"];
+
         // Deactivate old
         $update = $db->prepare("UPDATE red_committee_members SET active=0, revoked_at=NOW() WHERE class_id=:cid AND active=1");
         $update->execute([":cid" => $classId]);
 
-        // Log the replacement
-        $log = $db->prepare("INSERT INTO red_committee_logs(actor_id,action,target_user_id,class_id,area) VALUES(:aid,\"replace\",0,:cid,:area)");
-        $log->execute([":aid" => $user->id, ":cid" => $classId, ":area" => $area]);
+        // Log the replacement (log the old user being replaced)
+        $log = $db->prepare("INSERT INTO red_committee_logs(actor_id,action,target_user_id,class_id,area) VALUES(:aid,'replace',:tuid,:cid,:area)");
+        $log->execute([":aid" => $user->id, ":tuid" => $oldUserId, ":cid" => $classId, ":area" => $area]);
     }
 }
 
