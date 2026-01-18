@@ -13,8 +13,19 @@ $classId = isset($_GET['class_id']) ? intval($_GET['class_id']) : null;
 $area = $_GET['area'] ?? null;
 
 if ($role === 'teacher' && $classId) {
-    $stmt = $db->prepare("SELECT 1 FROM schedule WHERE teacher_id=:tid AND class_id=:cid LIMIT 1");
-    $stmt->execute([':tid' => $user->id, ':cid' => $classId]);
+    // Check all teacher-class sources: schedule, class_teacher_assignments, homeroom_teacher_id
+    $stmt = $db->prepare("
+        SELECT 1 FROM (
+            SELECT class_id FROM schedule WHERE teacher_id = :tid1
+            UNION
+            SELECT class_id FROM class_teacher_assignments WHERE teacher_id = :tid2
+            UNION
+            SELECT id AS class_id FROM classes WHERE homeroom_teacher_id = :tid3
+        ) AS teacher_classes
+        WHERE class_id = :cid
+        LIMIT 1
+    ");
+    $stmt->execute([':tid1' => $user->id, ':tid2' => $user->id, ':tid3' => $user->id, ':cid' => $classId]);
     if (!$stmt->fetch()) {
         Response::forbidden('Forbidden');
     }
