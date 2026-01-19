@@ -20,12 +20,16 @@ if ($file['error'] !== UPLOAD_ERR_OK) {
         case UPLOAD_ERR_INI_SIZE:
         case UPLOAD_ERR_FORM_SIZE:
             Response::error('File ảnh quá lớn', 400);
+            break;
         case UPLOAD_ERR_PARTIAL:
             Response::error('File tải lên bị lỗi', 400);
+            break;
         case UPLOAD_ERR_NO_FILE:
             Response::error('Không có file', 400);
+            break;
         default:
             Response::error('Lỗi upload: ' . $file['error'], 500);
+            break;
     }
 }
 
@@ -35,7 +39,7 @@ $finfo = finfo_open(FILEINFO_MIME_TYPE);
 $mime = finfo_file($finfo, $file['tmp_name']);
 
 if (!isset($allowed[$mime])) {
-    Response::error('Invalid type', 400);
+    Response::error('Định dạng không hợp lệ. Chỉ chấp nhận JPG, PNG, WEBP', 400);
 }
 
 $dir = __DIR__ . '/../../uploads/avatars';
@@ -47,7 +51,7 @@ $name = 'avatar_' . $user->id . '_' . time() . '.' . $allowed[$mime];
 $path = $dir . '/' . $name;
 
 if (!move_uploaded_file($file['tmp_name'], $path)) {
-    Response::error('Save failed', 500);
+    Response::error('Không thể lưu file ảnh', 500);
 }
 
 $upd = $db->prepare("UPDATE users SET avatar=:av WHERE id=:id");
