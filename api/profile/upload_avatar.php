@@ -9,10 +9,26 @@ $user = Middleware::auth();
 $db = Bootstrap::db();
 
 if (!isset($_FILES['image'])) {
-    Response::error('No file', 400);
+    Response::error('Vui lòng chọn ảnh', 400);
 }
 
 $file = $_FILES['image'];
+
+// Check upload errors
+if ($file['error'] !== UPLOAD_ERR_OK) {
+    switch ($file['error']) {
+        case UPLOAD_ERR_INI_SIZE:
+        case UPLOAD_ERR_FORM_SIZE:
+            Response::error('File ảnh quá lớn', 400);
+        case UPLOAD_ERR_PARTIAL:
+            Response::error('File tải lên bị lỗi', 400);
+        case UPLOAD_ERR_NO_FILE:
+            Response::error('Không có file', 400);
+        default:
+            Response::error('Lỗi upload: ' . $file['error'], 500);
+    }
+}
+
 $allowed = ['image/jpeg' => 'jpg', 'image/png' => 'png', 'image/webp' => 'webp'];
 
 $finfo = finfo_open(FILEINFO_MIME_TYPE);
