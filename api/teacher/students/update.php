@@ -17,9 +17,16 @@ if (empty($data['id']) || empty($data['class_id'])) {
     Response::error('Missing data.', 400);
 }
 
-// Check ownership
-$checkClass = $db->prepare("SELECT id FROM classes WHERE id = ? AND teacher_id = ?");
-$checkClass->execute([$data['class_id'], $user->id]);
+// Check ownership - teacher must be homeroom teacher, assigned teacher, or have schedule for this class
+$checkClass = $db->prepare("
+    SELECT DISTINCT c.id
+    FROM classes c
+    LEFT JOIN schedule s ON c.id = s.class_id
+    LEFT JOIN class_teacher_assignments cta ON c.id = cta.class_id
+    WHERE c.id = ?
+      AND (c.homeroom_teacher_id = ? OR s.teacher_id = ? OR cta.teacher_id = ?)
+");
+$checkClass->execute([$data['class_id'], $user->id, $user->id, $user->id]);
 if ($checkClass->rowCount() == 0) {
     Response::forbidden('You are not assigned to this class.');
 }
