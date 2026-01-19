@@ -44,14 +44,17 @@ if (!isset($allowed[$mime])) {
 
 $dir = __DIR__ . '/../../uploads/avatars';
 if (!is_dir($dir)) {
-    mkdir($dir, 0775, true);
+    if (!mkdir($dir, 0775, true)) {
+        Response::error('Lỗi server: Không thể tạo thư mục lưu ảnh', 500);
+    }
 }
 
 $name = 'avatar_' . $user->id . '_' . time() . '.' . $allowed[$mime];
 $path = $dir . '/' . $name;
 
 if (!move_uploaded_file($file['tmp_name'], $path)) {
-    Response::error('Không thể lưu file ảnh', 500);
+    $error = error_get_last();
+    Response::error('Không thể lưu file ảnh: ' . ($error['message'] ?? 'Unknown error'), 500);
 }
 
 $upd = $db->prepare("UPDATE users SET avatar=:av WHERE id=:id");
