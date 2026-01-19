@@ -36,18 +36,31 @@ if ($checkStudent->rowCount() == 0) {
 try {
     $db->beginTransaction();
 
-    // Remove from class_registrations only
+    // Check if student is in other classes
+    $otherClasses = $db->prepare("SELECT COUNT(*) FROM class_registrations WHERE student_id = ? AND class_id != ?");
+    $otherClasses->execute([$data['id'], $data['class_id']]);
+    $hasOtherClasses = $otherClasses->fetchColumn() > 0;
+
+    // Remove from this class only
     $stmt = $db->prepare("DELETE FROM class_registrations WHERE class_id = ? AND student_id = ?");
     $stmt->execute([$data['class_id'], $data['id']]);
 
-    // Soft lock user instead of hard delete
-    $stmt = $db->prepare("UPDATE users SET is_locked=1 WHERE id = ?");
-    $stmt->execute([$data['id']]);
+    // Only lock user if not in any other class
+    if (!$hasOtherClasses) {
+        $stmt = $db->prepare("UPDATE users SET is_locked = 1 WHERE id = ?");
+        $stmt->execute([$data['id']]);
+    }
 
     $db->commit();
-    Response::message('Student deleted successfully.');
+    Response::message('Student removed from class successfully.');
 
+} catch (PDOException $e) {
+    $db->rollBack();
+    // Log error for debugging
+    error_log("Delete student error: " . $e->getMessage());
+    Response::serverError('Database error occurred. Please try again.');
 } catch (Exception $e) {
     $db->rollBack();
+    error_log("Delete student error: " . $e->getMessage());
     Response::serverError('Error: ' . $e->getMessage());
 }

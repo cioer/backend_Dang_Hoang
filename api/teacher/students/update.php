@@ -40,24 +40,60 @@ if ($checkStudent->rowCount() == 0) {
 try {
     $db->beginTransaction();
 
-    // Update User
-    $fields = [];
-    if (isset($data['full_name'])) $fields['full_name'] = $data['full_name'];
-
-    if (!empty($fields)) {
-        $repo->updateUser($data['id'], $fields);
+    // Update User full_name if provided
+    if (isset($data['full_name']) && !empty($data['full_name'])) {
+        $repo->updateUser($data['id'], ['full_name' => $data['full_name']]);
     }
 
-    // Update Profile
+    // Update Profile - only update fields that are provided
     if (isset($data['parent_name']) || isset($data['parent_phone']) || isset($data['full_name'])) {
-        // Need to ensure profile exists
-        $stmt = $db->prepare("INSERT INTO student_profiles (user_id, full_name, guardian_name, guardian_phone) VALUES (?, ?, ?, ?) ON DUPLICATE KEY UPDATE full_name = VALUES(full_name), guardian_name = VALUES(guardian_name), guardian_phone = VALUES(guardian_phone)");
-        $stmt->execute([
-            $data['id'],
-            $data['full_name'] ?? "",
-            $data['parent_name'] ?? "",
-            $data['parent_phone'] ?? ""
-        ]);
+        // Check if profile exists
+        $checkProfile = $db->prepare("SELECT user_id, full_name FROM student_profiles WHERE user_id = ?");
+        $checkProfile->execute([$data['id']]);
+        $existingProfile = $checkProfile->fetch(PDO::FETCH_ASSOC);
+
+        if ($existingProfile) {
+            // Profile exists - only update provided fields
+            $updateFields = [];
+            $updateParams = [];
+
+            if (isset($data['full_name']) && !empty($data['full_name'])) {
+                $updateFields[] = "full_name = ?";
+                $updateParams[] = $data['full_name'];
+            }
+            if (isset($data['parent_name'])) {
+                $updateFields[] = "guardian_name = ?";
+                $updateParams[] = $data['parent_name'];
+            }
+            if (isset($data['parent_phone'])) {
+                $updateFields[] = "guardian_phone = ?";
+                $updateParams[] = $data['parent_phone'];
+            }
+
+            if (!empty($updateFields)) {
+                $updateParams[] = $data['id'];
+                $stmt = $db->prepare("UPDATE student_profiles SET " . implode(", ", $updateFields) . " WHERE user_id = ?");
+                $stmt->execute($updateParams);
+            }
+        } else {
+            // Profile doesn't exist - need full_name to create
+            $fullName = $data['full_name'] ?? null;
+            if (empty($fullName)) {
+                // Get full_name from users table
+                $userStmt = $db->prepare("SELECT full_name FROM users WHERE id = ?");
+                $userStmt->execute([$data['id']]);
+                $userRow = $userStmt->fetch(PDO::FETCH_ASSOC);
+                $fullName = $userRow['full_name'] ?? 'Unknown';
+            }
+
+            $stmt = $db->prepare("INSERT INTO student_profiles (user_id, full_name, guardian_name, guardian_phone) VALUES (?, ?, ?, ?)");
+            $stmt->execute([
+                $data['id'],
+                $fullName,
+                $data['parent_name'] ?? null,
+                $data['parent_phone'] ?? null
+            ]);
+        }
     }
 
     $db->commit();
