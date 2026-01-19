@@ -43,10 +43,21 @@ if (!isset($allowed[$mime])) {
 }
 
 $dir = __DIR__ . '/../../uploads/avatars';
-if (!is_dir($dir)) {
+// Create directory if not exists
+if (!file_exists($dir)) {
     if (!mkdir($dir, 0775, true)) {
-        Response::error('Lỗi server: Không thể tạo thư mục lưu ảnh', 500);
+        $error = error_get_last();
+        Response::error('Lỗi server: Không thể tạo thư mục lưu ảnh. ' . ($error['message'] ?? ''), 500);
     }
+}
+
+// Ensure directory is writable
+if (!is_writable($dir)) {
+     // Try to chmod if owner
+     @chmod($dir, 0775);
+     if (!is_writable($dir)) {
+         Response::error('Lỗi server: Thư mục lưu ảnh không có quyền ghi (Permission denied)', 500);
+     }
 }
 
 $name = 'avatar_' . $user->id . '_' . time() . '.' . $allowed[$mime];
