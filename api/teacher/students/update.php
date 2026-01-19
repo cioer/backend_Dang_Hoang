@@ -61,11 +61,11 @@ try {
                 $updateFields[] = "full_name = ?";
                 $updateParams[] = $data['full_name'];
             }
-            if (isset($data['parent_name'])) {
+            if (isset($data['parent_name']) && $data['parent_name'] !== '') {
                 $updateFields[] = "guardian_name = ?";
                 $updateParams[] = $data['parent_name'];
             }
-            if (isset($data['parent_phone'])) {
+            if (isset($data['parent_phone']) && $data['parent_phone'] !== '') {
                 $updateFields[] = "guardian_phone = ?";
                 $updateParams[] = $data['parent_phone'];
             }
