@@ -72,6 +72,16 @@ chmod +x .git/hooks/post-merge
 # Test manually
 .git/hooks/post-merge
 ```
+
+### Nếu webhook auto-fix không hoạt động
+```bash
+# Check webhook logs
+docker logs backend_webhook --tail 50
+
+# Nếu thấy lỗi "docker: command not found" hoặc "✗ Failed"
+# Xem hướng dẫn chi tiết tại:
+docs/FIX_WEBHOOK_DOCKER_ACCESS.md
+```
 # Test auto-fix permissions on Tue Jan 20 08:19:54 AM +07 2026
 # Test auto-fix with new webhook - Tue Jan 20 08:39:13 AM +07 2026
 # Final test 1768873267
