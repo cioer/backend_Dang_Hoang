@@ -4,8 +4,8 @@
  * Include this file at the top of every endpoint
  */
 
-// Load Composer autoloader
-require_once __DIR__ . '/../vendor/autoload.php';
+// Load Custom Autoloader (Moved from vendor/ to src/ to avoid gitignore issues)
+require_once __DIR__ . '/../src/autoload.php';
 
 // Classes are now available via autoloading:
 // - App\Core\Response
