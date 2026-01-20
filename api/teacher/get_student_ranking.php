@@ -57,9 +57,9 @@ try {
     }
 
     // Query: Lấy danh sách học sinh và tính điểm nề nếp
-    // Điểm ban đầu: 100, trừ đi tổng điểm vi phạm
-    // Sắp xếp: Điểm cao nhất (100) lên đầu
-    $query = "SELECT
+    // Điểm ban đầu: 100, trừ đi tổng điểm vi phạm. Sắp xếp: Điểm cao nhất (100) lên đầu
+    // Lưu ý: Đã đưa điều kiện lọc ngày vào ON clause của LEFT JOIN để đảm bảo hiện cả học sinh không vi phạm
+    $query = "SELECT 
                 u.id as student_id,
                 u.full_name,
                 u.username as student_code,
@@ -68,9 +68,9 @@ try {
                 COUNT(v.id) as violation_count
               FROM student_details sd
               JOIN users u ON sd.user_id = u.id
-              LEFT JOIN violations v ON u.id = v.student_id
+              LEFT JOIN violations v ON u.id = v.student_id $dateCondition
               LEFT JOIN conduct_rules cr ON v.rule_id = cr.id
-              WHERE sd.class_id = :class_id" . $dateCondition . "
+              WHERE sd.class_id = :class_id
               GROUP BY u.id, u.full_name, u.username
               ORDER BY conduct_score DESC, violation_count ASC, u.full_name ASC";
 
