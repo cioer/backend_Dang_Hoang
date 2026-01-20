@@ -50,9 +50,20 @@ def verify_signature(payload, signature):
 def fix_permissions(repo_path):
     """Auto-fix file permissions after git pull"""
     try:
-        # Run fix-permissions script via Docker
+        # Run fix-permissions script on host (not via Docker)
+        script_path = os.path.join(repo_path, 'scripts/fix-permissions.sh')
+
+        # Check if script exists
+        if not os.path.exists(script_path):
+            logger.warning(f'Permission fix script not found: {script_path}')
+            return False, 'Script not found'
+
+        # Make sure script is executable
+        os.chmod(script_path, 0o755)
+
+        # Run script (it will detect host environment and use docker exec internally)
         result = subprocess.run(
-            ['docker', 'exec', 'school_management_backend', 'bash', '/var/www/html/scripts/fix-permissions.sh'],
+            ['bash', script_path],
             cwd=repo_path,
             capture_output=True,
             text=True,
@@ -61,10 +72,12 @@ def fix_permissions(repo_path):
 
         if result.returncode == 0:
             logger.info(f'✓ Permissions fixed successfully')
-            logger.info(f'Permission fix output: {result.stdout}')
+            # Log first 500 chars to avoid spam
+            output_preview = result.stdout[:500] if result.stdout else ''
+            logger.info(f'Permission fix output: {output_preview}')
             return True, result.stdout
         else:
-            logger.warning(f'⚠ Permission fix returned non-zero: {result.stderr}')
+            logger.warning(f'⚠ Permission fix returned non-zero: {result.stderr[:200]}')
             return False, result.stderr
 
     except Exception as e:
