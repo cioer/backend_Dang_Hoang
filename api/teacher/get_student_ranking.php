@@ -35,11 +35,12 @@ try {
 
     // Validate quyền truy cập lớp (nếu là GV)
     if ($user->role === 'teacher') {
-        $stmt = $db->prepare("SELECT COUNT(*) FROM classes c 
+        $teacher_id = $user->id;
+        $stmt = $db->prepare("SELECT COUNT(*) FROM classes c
                               LEFT JOIN class_teacher_assignments cta ON c.id = cta.class_id
                               LEFT JOIN schedule s ON c.id = s.class_id
-                              WHERE c.id = :cid AND (c.homeroom_teacher_id = :tid OR cta.teacher_id = :tid OR s.teacher_id = :tid)");
-        $stmt->execute([':cid' => $class_id, ':tid' => $user->id]);
+                              WHERE c.id = ? AND (c.homeroom_teacher_id = ? OR cta.teacher_id = ? OR s.teacher_id = ?)");
+        $stmt->execute([$class_id, $teacher_id, $teacher_id, $teacher_id]);
         if ($stmt->fetchColumn() == 0) {
             Response::error('Bạn không có quyền xem thống kê lớp này.', 403);
         }
