@@ -68,17 +68,28 @@ class Request
      */
     public static function getBearerToken(): ?string
     {
-        $headers = getallheaders();
-        $auth = $headers['Authorization'] ?? $headers['authorization'] ?? null;
-        if ($auth && preg_match('/Bearer\s+(.+)/i', $auth, $matches)) {
-            return $matches[1];
+        // Try getallheaders() if available
+        if (function_exists('getallheaders')) {
+            $headers = \getallheaders();
+            $auth = $headers['Authorization'] ?? $headers['authorization'] ?? null;
+            if ($auth && preg_match('/Bearer\s+(.+)/i', $auth, $matches)) {
+                return $matches[1];
+            }
         }
-        // Fallback to Apache/CGI
+
+        // Fallback to $_SERVER['HTTP_AUTHORIZATION']
         if (isset($_SERVER['HTTP_AUTHORIZATION'])) {
             if (preg_match('/Bearer\s+(.+)/i', $_SERVER['HTTP_AUTHORIZATION'], $matches)) {
                 return $matches[1];
             }
         }
+
+        // Fallback to Apache rewrite module
+        $authHeader = $_SERVER['REDIRECT_HTTP_AUTHORIZATION'] ?? $_SERVER['HTTP_AUTHORIZATION'] ?? null;
+        if ($authHeader && preg_match('/Bearer\s+(.+)/i', $authHeader, $matches)) {
+            return $matches[1];
+        }
+
         return null;
     }
 
