@@ -77,6 +77,11 @@ if [ -d "$WEBROOT/config" ]; then
     fix_permissions "$WEBROOT/config" "Config files"
 fi
 
+# 4.5. Fix src directory (autoload, etc.)
+if [ -d "$WEBROOT/src" ]; then
+    fix_permissions "$WEBROOT/src" "Source files"
+fi
+
 # 5. Make sure bootstrap.php is readable
 if [ "$IN_DOCKER" = true ]; then
     chmod 644 "$WEBROOT/bootstrap.php" 2>/dev/null
