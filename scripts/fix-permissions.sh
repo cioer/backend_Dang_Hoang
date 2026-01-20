@@ -20,12 +20,14 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
-# Check if running inside Docker container
-if [ -f /.dockerenv ]; then
-    echo -e "${GREEN}✓ Running inside Docker container${NC}"
+# Check if running inside the BACKEND Docker container (not webhook container)
+# If script is in /var/www/html, we're in backend container
+# Otherwise, we're on host or in webhook container
+if [ -f /var/www/html/bootstrap.php ]; then
+    echo -e "${GREEN}✓ Running inside backend container${NC}"
     IN_DOCKER=true
 else
-    echo -e "${YELLOW}⚠ Running on host system${NC}"
+    echo -e "${YELLOW}⚠ Running on host/webhook - will use docker exec${NC}"
     IN_DOCKER=false
 fi
 
