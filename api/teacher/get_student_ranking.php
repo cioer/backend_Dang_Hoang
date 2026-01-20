@@ -50,15 +50,14 @@ try {
     $params = [':class_id' => $class_id];
 
     if ($start_date && $end_date) {
-        $dateCondition = " AND (v.created_at BETWEEN :start_date AND :end_date) ";
+        $dateCondition = " AND v.created_at BETWEEN :start_date AND :end_date";
         $params[':start_date'] = $start_date . " 00:00:00";
         $params[':end_date'] = $end_date . " 23:59:59";
     }
 
     // Query: Lấy danh sách học sinh và tổng điểm trừ
     // Lưu ý: LEFT JOIN violations để lấy cả học sinh không vi phạm (điểm trừ 0)
-    // Sửa query để tường minh hơn về student_id
-    $query = "SELECT 
+    $query = "SELECT
                 u.id as student_id,
                 u.full_name,
                 u.username as student_code,
@@ -66,9 +65,9 @@ try {
                 COUNT(v.id) as violation_count
               FROM student_details sd
               JOIN users u ON sd.user_id = u.id
-              LEFT JOIN violations v ON u.id = v.student_id $dateCondition
+              LEFT JOIN violations v ON u.id = v.student_id
               LEFT JOIN conduct_rules cr ON v.rule_id = cr.id
-              WHERE sd.class_id = :class_id
+              WHERE sd.class_id = :class_id" . $dateCondition . "
               GROUP BY u.id, u.full_name, u.username
               ORDER BY total_deducted ASC, violation_count ASC, u.full_name ASC";
 
