@@ -1,0 +1,573 @@
+================================================================================
+        HƯỚNG DẪN DEPLOY BACKEND SCHOOL MANAGEMENT LÊN VPS
+================================================================================
+
+Server: huuthang.online (103.252.136.73)
+User: deploy
+Backend Port: 8080
+Database: MySQL 8.0 (port 3306)
+
+================================================================================
+I. KIẾN TRÚC HỆ THỐNG
+================================================================================
+
+1. CONTAINERS ĐANG CHẠY
+   -----------------
+
+   Backend Application:
+   - Container: school_management_backend
+   - Image: backend_dang_hoang-app (PHP-FPM + Nginx)
+   - Port: 8080:80
+   - Network: backend_dang_hoang_school_network
+   - Volume: ./:/var/www/html (bind mount)
+
+   Database:
+   - Container: school_management_db
+   - Image: mysql:8.0
+   - Port: 3306:3306
+   - Network: backend_dang_hoang_school_network
+   - Volume: backend_dang_hoang_mysql_data (persistent)
+   - Credentials:
+     * Root: root / root_password
+     * App User: school_user / school_password
+     * Database: school_management
+
+   Webhook Auto-Deploy:
+   - Container: backend_webhook
+   - Port: 9001
+   - Network: host (isolated)
+   - Repo: backend_Dang_Hoang (chữ D, H viết hoa)
+
+2. CẤU TRÚC THỨ MỤC
+   -----------------
+
+   /home/deploy/
+   ├── backend_Dang_Hoang/          # Main backend repository
+   │   ├── api/                      # API endpoints
+   │   ├── config/                   # Database, JWT config
+   │   ├── src/                      # Autoload, core classes
+   │   ├── lib/                      # UserRepository, etc.
+   │   ├── scripts/                  # Utility scripts
+   │   ├── migrations/               # Database migrations
+   │   ├── uploads/                  # File uploads
+   │   ├── docker-compose.yml        # Docker configuration
+   │   └── Dockerfile                # Backend image build
+   │
+   ├── webhooks/                     # Webhook auto-deploy
+   │   ├── github_webhook.py         # Webhook server
+   │   └── docker-compose.yml
+   │
+   ├── scripts/                      # Server scripts
+   │   └── db_monitor.sh             # Database monitoring
+   │
+   └── logs/                         # Log files
+       ├── db_monitor.log            # Monitoring logs
+       ├── db_alerts.log             # Alert logs
+       └── last_user_count.txt       # User count cache
+
+================================================================================
+II. QUY TRÌNH DEPLOY
+================================================================================
+
+1. SETUP BAN ĐẦU (Chỉ làm 1 lần)
+   ------------------------------
+
+   Bước 1: Clone repository
+   ```bash
+   ssh deploy@huuthang.online
+   cd /home/deploy
+   git clone https://github.com/cioer/backend_Dang_Hoang.git
+   cd backend_Dang_Hoang
+   ```
+
+   Bước 2: Tạo file .env (nếu cần)
+   ```bash
+   cp .env.example .env
+   # Chỉnh sửa thông tin database trong .env
+   ```
+
+   Bước 3: Build và start containers
+   ```bash
+   docker compose up -d --build
+   ```
+
+   Bước 4: Chờ MySQL khởi động và tự động import schema
+   - MySQL tự động chạy: docker/mysql/init-db.d/01-init-database.sql
+   - Script này chỉ chạy 1 lần khi volume trống
+
+   Bước 5: Verify deployment
+   ```bash
+   docker ps
+   curl http://localhost:8080/api/banners/get_active.php
+   ```
+
+2. AUTO-DEPLOY VỚI WEBHOOK
+   ------------------------
+
+   Cơ chế:
+   - GitHub push → Webhook gửi POST request → backend_webhook container
+   - Container chạy: git pull + fix permissions
+   - KHÔNG rebuild container, KHÔNG restart services
+   - KHÔNG ảnh hưởng database
+
+   Quy trình:
+   1. Developer push code lên GitHub (branch: main)
+   2. GitHub gửi webhook đến: http://huuthang.online:9001
+   3. backend_webhook nhận event và verify signature
+   4. Chạy: git fetch origin && git reset --hard origin/main
+   5. Chạy: scripts/fix-permissions.sh
+   6. Post-merge hook tự động chạy permission fix
+   7. Code mới được apply ngay lập tức (vì bind mount)
+
+   Lưu ý:
+   - Webhook KHÔNG restart container
+   - Webhook KHÔNG xóa database
+   - Webhook KHÔNG chạy migrations
+   - Migrations phải chạy thủ công
+
+3. DEPLOY THỦ CÔNG (Khi cần)
+   --------------------------
+
+   Pull code mới:
+   ```bash
+   cd /home/deploy/backend_Dang_Hoang
+   git pull origin main
+   ```
+
+   Restart backend (nếu cần):
+   ```bash
+   docker restart school_management_backend
+   ```
+
+   Rebuild (khi thay đổi Dockerfile):
+   ```bash
+   docker compose build app
+   docker compose up -d app
+   ```
+
+   Chạy migrations:
+   ```bash
+   docker exec -i school_management_db mysql -u root -proot_password school_management < migrations/your_migration.sql
+   ```
+
+================================================================================
+III. CÁC LỖI ĐÃ SỬA TRONG SESSION NÀY
+================================================================================
+
+1. LỖI: DATABASE CONNECTION FAILED
+   --------------------------------
+
+   Triệu chứng:
+   - SQLSTATE[HY000] [1130] Host '172.21.0.3' is not allowed to connect
+   - Backend không kết nối được MySQL
+
+   Nguyên nhân:
+   - MySQL user 'school_user' không tồn tại
+   - Volume cũ không apply MYSQL_USER/MYSQL_PASSWORD từ env variables
+   - Chỉ có root user trong mysql.user table
+
+   Giải pháp:
+   ```sql
+   CREATE USER 'school_user'@'%' IDENTIFIED BY 'school_password';
+   GRANT ALL PRIVILEGES ON school_management.* TO 'school_user'@'%';
+   FLUSH HOSTS;
+   FLUSH PRIVILEGES;
+   ```
+
+   Status: ✅ FIXED
+   - Database connection hoạt động bình thường
+   - 166 users, 32 tables
+   - Không còn lỗi connection trong logs
+
+2. LỖI: TABLE 'users' DOESN'T EXIST
+   ---------------------------------
+
+   Triệu chứng:
+   - SQLSTATE[42S02]: Base table or view not found
+   - Database rỗng, không có tables
+
+   Nguyên nhân:
+   - Init script không chạy vì volume đã tồn tại
+   - Hoặc database bị reset về trống
+
+   Giải pháp:
+   - Import lại schema:
+   ```bash
+   docker exec -i school_management_db mysql -u root -proot_password school_management < 1_school_management.sql
+   docker exec -i school_management_db mysql -u root -proot_password school_management < 2_update_red_committee.sql
+   docker exec -i school_management_db mysql -u root -proot_password school_management < 3_attendance_update.sql
+   ```
+
+   Status: ✅ FIXED
+   - 32 bảng đã được tạo
+   - 166 users đã có sẵn
+
+3. LỖI: RED COMMITTEE CREATE ACCOUNT FAILED
+   ----------------------------------------
+
+   Triệu chứng:
+   - Endpoint: POST /api/red_committee/create_account.php
+   - Error: Column 'class_id' not found in table 'users'
+   - Error: Column 'is_red_star' not found
+   - Error: Table 'red_committee_logs' doesn't exist
+
+   Nguyên nhân:
+   - Schema cũ không có columns cho Red Committee feature
+   - Migration chưa được chạy
+
+   Giải pháp:
+   - Chạy migration: migrations/fix_red_committee_db.sql
+   ```sql
+   ALTER TABLE users ADD COLUMN class_id INT DEFAULT NULL;
+   ALTER TABLE users ADD COLUMN is_red_star TINYINT(1) DEFAULT 0;
+   ALTER TABLE users MODIFY COLUMN role ENUM('admin','teacher','student','parent','red_star');
+
+   CREATE TABLE red_committee_logs (
+     id, actor_id, action, target_user_id, class_id, area, created_at
+   );
+   ```
+
+   Status: ✅ FIXED
+   - Test thành công với full authentication
+   - User ID 251 (redstar_test_001) đã được tạo
+   - Log đã được ghi vào red_committee_logs
+
+4. LỖI: GET_STUDENT_RANKING THIẾU HỌC SINH
+   -----------------------------------------
+
+   Triệu chứng:
+   - API trả về sai danh sách học sinh
+   - Thiếu học sinh không có vi phạm
+
+   Nguyên nhân:
+   - Date filter ở WHERE clause
+   - LEFT JOIN với điều kiện lọc ngày làm mất học sinh không vi phạm
+
+   Giải pháp:
+   - Di chuyển date condition từ WHERE sang ON clause:
+   ```sql
+   -- TRƯỚC (SAI):
+   LEFT JOIN violations v ON u.id = v.student_id
+   WHERE sd.class_id = :class_id AND (date filter)
+
+   -- SAU (ĐÚNG):
+   LEFT JOIN violations v ON u.id = v.student_id AND (date filter)
+   WHERE sd.class_id = :class_id
+   ```
+
+   Status: ✅ FIXED (commit af0db6f)
+
+5. LỖI: WEBHOOK Ở SAI NETWORK
+   ---------------------------
+
+   Triệu chứng:
+   - backend_webhook container trong deploy_qlnckh-network
+   - Có nguy cơ cross-contamination với QLNCKH app
+
+   Nguyên nhân:
+   - Cấu hình docker-compose.yml sai
+   - Webhook cho backend school lại dùng network của QLNCKH
+
+   Giải pháp:
+   - Đổi sang host network mode:
+   ```yaml
+   # /home/deploy/webhooks/docker-compose.yml
+   backend-webhook:
+     network_mode: host  # Thay vì deploy_qlnckh-network
+   ```
+
+   Status: ✅ FIXED
+   - Webhook isolated khỏi QLNCKH
+   - Vẫn hoạt động bình thường trên port 9001
+
+6. THIẾU: DATABASE MONITORING & AUDIT
+   -----------------------------------
+
+   Vấn đề:
+   - Không có cách phát hiện mất dữ liệu
+   - Không có audit trail
+
+   Giải pháp:
+   - Tạo monitoring script: /home/deploy/scripts/db_monitor.sh
+   - Cron job chạy mỗi 15 phút
+   - Alert nếu giảm >10 users
+   - Log vào: /home/deploy/logs/db_monitor.log
+
+   Features:
+   - Đếm số users hiện tại
+   - So sánh với lần check trước
+   - Alert nếu phát hiện anomaly
+   - Có thể mở rộng check thêm tables khác
+
+   Status: ✅ IMPLEMENTED
+   - Baseline: 169 users
+   - Cron: */15 * * * *
+
+================================================================================
+IV. THÔNG TIN QUAN TRỌNG
+================================================================================
+
+1. CREDENTIALS
+   -----------
+
+   Admin Account:
+   - Username: admin
+   - Password: admin123
+   - ⚠️ NÊN ĐỔI MẬT KHẨU NGAY!
+
+   Database Root:
+   - User: root
+   - Password: root_password
+   - Host: localhost (hoặc mysql từ trong container)
+
+   Database App User:
+   - User: school_user
+   - Password: school_password
+   - Database: school_management
+   - Permissions: ALL on school_management.*
+
+   Webhook Secret:
+   - Secret: school-management-webhook-2024
+   - Configured trong GitHub webhook settings
+
+2. PORTS
+   ------
+
+   - 8080: Backend HTTP (school management)
+   - 3306: MySQL (exposed to host)
+   - 9001: Backend webhook
+   - 9000: QLNCKH webhook (app khác)
+   - 80/443: Nginx reverse proxy (QLNCKH)
+
+3. NETWORKS
+   ---------
+
+   backend_dang_hoang_school_network:
+   - school_management_backend (172.21.0.3)
+   - school_management_db (172.21.0.2)
+
+   deploy_qlnckh-network:
+   - qlnckh-app
+   - qlnckh-postgres
+   - qlnckh-nginx
+   - (backend_webhook ĐÃ TẠch ra - dùng host)
+
+4. VOLUMES
+   --------
+
+   Persistent:
+   - backend_dang_hoang_mysql_data: MySQL data (GIỮ MÃI MÃI)
+
+   Bind Mounts:
+   - ./:/var/www/html: Code directory
+   - ./uploads:/var/www/html/uploads: File uploads
+
+   ⚠️ CHÚ Ý:
+   - docker-compose down: GIỮ volumes
+   - docker-compose down -v: XÓA volumes (NGUY HIỂM!)
+
+================================================================================
+V. VẬN HÀNH
+================================================================================
+
+1. KIỂM TRA HEALTH
+   ----------------
+
+   Check containers:
+   ```bash
+   docker ps
+   docker ps -a  # Bao gồm stopped containers
+   ```
+
+   Check logs:
+   ```bash
+   docker logs school_management_backend
+   docker logs school_management_db
+   docker logs backend_webhook
+   ```
+
+   Check database:
+   ```bash
+   docker exec school_management_db mysql -u root -proot_password school_management -e "SELECT COUNT(*) FROM users;"
+   ```
+
+   Check API:
+   ```bash
+   curl http://localhost:8080/api/banners/get_active.php
+   ```
+
+2. MONITORING
+   -----------
+
+   Database monitoring:
+   ```bash
+   cat /home/deploy/logs/db_monitor.log
+   cat /home/deploy/logs/db_alerts.log
+   cat /home/deploy/logs/last_user_count.txt
+   ```
+
+   Manual check:
+   ```bash
+   /home/deploy/scripts/db_monitor.sh
+   ```
+
+   Cron jobs:
+   ```bash
+   crontab -l
+   ```
+
+3. BACKUP & RESTORE
+   -----------------
+
+   Manual backup:
+   ```bash
+   docker exec school_management_db mysqldump -u root -proot_password school_management | gzip > backup_$(date +%Y%m%d).sql.gz
+   ```
+
+   Restore from backup:
+   ```bash
+   gunzip < backup_20260123.sql.gz | docker exec -i school_management_db mysql -u root -proot_password school_management
+   ```
+
+   ⚠️ TODO: Setup automatic daily backup
+   ```bash
+   # Cron job (chưa setup):
+   # 0 2 * * * docker exec school_management_db mysqldump ...
+   ```
+
+4. TROUBLESHOOTING
+   ----------------
+
+   Problem: API trả về 500
+   Solution: Check logs
+   ```bash
+   docker logs --tail 50 school_management_backend
+   ```
+
+   Problem: Database connection failed
+   Solution: Check user exists và permissions
+   ```bash
+   docker exec school_management_db mysql -u root -proot_password -e "SELECT host, user FROM mysql.user WHERE user='school_user';"
+   ```
+
+   Problem: Container không start
+   Solution: Check docker logs và ports
+   ```bash
+   docker logs school_management_backend
+   netstat -tlnp | grep :8080
+   ```
+
+   Problem: Webhook không hoạt động
+   Solution: Check webhook logs
+   ```bash
+   docker logs backend_webhook
+   curl http://localhost:9001  # Should return "Webhook server is running"
+   ```
+
+================================================================================
+VI. CẢNH BÁO & LƯU Ý
+================================================================================
+
+1. KHÔNG BAO GIỜ CHẠY:
+   -------------------
+
+   ❌ docker-compose down -v
+      → XÓA TẤT CẢ VOLUMES = MẤT DỮ LIỆU!
+
+   ❌ ./deploy.sh --reset-db
+      → RESET DATABASE VỀ TRẠNG THÁI BAN ĐẦU!
+
+   ❌ docker volume rm backend_dang_hoang_mysql_data
+      → XÓA DATABASE!
+
+   ❌ Import SQL file có DROP TABLE/TRUNCATE
+      → MẤT DỮ LIỆU HIỆN TẠI!
+
+2. AN TOÀN KHI CHẠY:
+   -----------------
+
+   ✅ docker restart school_management_backend
+      → Chỉ restart container, GIỮ database
+
+   ✅ docker-compose up -d
+      → Start/restart services, GIỮ volumes
+
+   ✅ git pull origin main
+      → Update code, KHÔNG ảnh hưởng database
+
+   ✅ docker exec -i ... < migration.sql
+      → Chạy migration, KHÔNG drop tables
+
+3. KIỂM TRA TRƯỚC KHI CHẠY LỆNH NGUY HIỂM:
+   ----------------------------------------
+
+   - Luôn backup trước khi chạy migrations
+   - Đọc kỹ SQL script trước khi import
+   - Test trên local trước
+   - Có kế hoạch rollback
+
+================================================================================
+VII. GITIGNORE & FILE TRACKING
+================================================================================
+
+Các file KHÔNG được commit:
+- .env (credentials)
+- /vendor (PHP dependencies)
+- /node_modules
+- /uploads/* (file uploads của users)
+- *.log (log files)
+- .idea, .vscode (IDE configs)
+
+Các file test đã được ignore:
+- test_new_apis.sh
+- test_red_star_create.py
+- test_red_star_simple.sh
+
+================================================================================
+VIII. COMMIT HISTORY (Session này)
+================================================================================
+
+Commit: ec4d081
+- chore: Add test scripts to .gitignore
+
+Commit: ac114be
+- Fix Red Committee DB Schema and update gitignore
+- Thêm migrations/fix_red_committee_db.sql
+- Thêm docker/mysql/init-db.d/01-init-database.sql
+
+Commit: ead8ec9
+- Add support/ask.php: Vectara proxy endpoint for Support Chat
+- API mới cho AI chatbot support
+
+Commit: af0db6f
+- fix xep hang
+- Sửa lỗi LEFT JOIN trong get_student_ranking.php
+
+Commit: 8e1150f
+- feat: Rank students by conduct score (100 - deducted points)
+
+================================================================================
+IX. LIÊN HỆ & HỖ TRỢ
+================================================================================
+
+Repository: https://github.com/cioer/backend_Dang_Hoang
+Server: huuthang.online
+Admin: deploy@huuthang.online
+
+Lỗi thường gặp:
+1. Database connection → Check section III.1
+2. Missing tables → Check section III.2
+3. Red committee errors → Check section III.3
+4. Missing students in ranking → Check section III.4
+
+================================================================================
+                            HẾT HƯỚNG DẪN
+================================================================================
+
+File được tạo: 2026-01-23
+Session: Database debugging & deployment fixes
+Status: ✅ All issues resolved
+Next steps:
+  - Setup automatic backup (cron job)
+  - Change admin password
+  - Monitor logs regularly
