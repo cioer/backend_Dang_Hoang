@@ -7,3 +7,8 @@
 !/uploads/.gitkeep
 *.log
 docker-compose.override.yml
+
+# Test scripts
+test_new_apis.sh
+test_red_star_create.py
+test_red_star_simple.sh
