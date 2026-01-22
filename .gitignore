@@ -1,0 +1,9 @@
+/vendor
+/node_modules
+.env
+.idea
+.vscode
+/uploads/*
+!/uploads/.gitkeep
+*.log
+docker-compose.override.yml

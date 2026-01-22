@@ -5,14 +5,16 @@ Middleware::cors('POST');
 $user = Middleware::auth();
 $input = json_decode(file_get_contents('php://input'), true);
 $q = isset($input['question']) ? trim($input['question']) : '';
+$role = isset($input['role']) ? trim($input['role']) : ($user->role ?? 'guest');
 if (!$q) { Response::error('Thiếu câu hỏi', 400); }
 $apiKey = getenv('VECTARA_API_KEY');
 $customerId = getenv('VECTARA_CUSTOMER_ID');
 $corpusId = getenv('VECTARA_CORPUS_ID');
 if (!$apiKey || !$customerId || !$corpusId) { Response::error('Server chưa cấu hình Vectara', 500); }
+$prompt = "Trả lời bằng tiếng Việt, ngắn gọn, chỉ dựa vào dữ liệu đã nạp. Vai trò người hỏi: {$role}. Câu hỏi: {$q}";
 $payload = json_encode([
     'query' => [[
-        'query' => $q,
+        'query' => $prompt,
         'num_results' => 5,
         'corpus_key' => [[ 'customer_id' => (int)$customerId, 'corpus_id' => (int)$corpusId ]]
     ]]

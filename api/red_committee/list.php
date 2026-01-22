@@ -32,7 +32,7 @@ if ($role === 'teacher' && $classId) {
 }
 
 $params = [];
-$sql = "SELECT m.id, m.user_id, m.class_id, m.area, m.active, m.expired_at, m.duration_weeks, m.start_date, DATEDIFF(m.expired_at, NOW()) as days_left, u.full_name, u.username, c.name as class_name FROM red_committee_members m JOIN users u ON m.user_id=u.id JOIN classes c ON m.class_id = c.id WHERE m.active=1";
+$sql = "SELECT m.id, m.user_id, m.class_id, m.active, m.expired_at, m.duration_weeks, m.start_date, DATEDIFF(m.expired_at, NOW()) as days_left, u.full_name, u.username, c.name as class_name FROM red_committee_members m JOIN users u ON m.user_id=u.id JOIN classes c ON m.class_id = c.id WHERE m.active=1";
 
 if ($classId) {
     $sql .= " AND m.class_id=:cid";
